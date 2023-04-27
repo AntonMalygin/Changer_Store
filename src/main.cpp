@@ -2,10 +2,13 @@
 #include "ST7567S.h"
 #include "Console.h"
 #include <EncButton.h>
-
+#include "GyverPID.h"
+#include "main.h"
+#include "ESP32Time.h"
+//#include "sdkconfig.h"
 
 Console<ST7567S<0x3F>> lcd;
-EncButton<EB_TICK, 4,3,2> enc;  // энкодер с кнопкой
+EncButton<EB_TICK, 7,6,2> enc;  // энкодер с кнопкой
 //EncButton2<EB_ENC> enc(INPUT, 2, 3);        // просто энкодер
 //EncButton2<EB_BTN> enc(INPUT, 4);           // просто кнопка
 // для изменения направления энкодера поменяй A и B при инициализации
@@ -14,9 +17,33 @@ EncButton<EB_TICK, 4,3,2> enc;  // энкодер с кнопкой
 // Если используется внешняя подтяжка - лучше перевести в INPUT
 //EncButton<EB_TICK, 2, 3, 4> enc(INPUT);
 
+GyverPID RT(0.1, 0.05, 0.01, 10);  // Регулятор тока коэф. П, коэф. И, коэф. Д, период дискретизации dt (мс)
+GyverPID RC(0.1, 0.05, 0.01, 10);  // Регулятор напряжения коэф. П, коэф. И, коэф. Д, период дискретизации dt (мс)
+
+//ESP32Time rtc;
+ESP32Time rtc(10800);  // offset in seconds GMT+3
+
+u_long now,current;   // время
+u_long timeout=200;
+
 #define ITEMS 24               // Общее кол во пунктов (больше 8 - нужно несколько страниц)
+
 uint8_t data[ITEMS];
 bool flag = true;
+
+// Задаем настройки для ШИМ-сигналов
+const int freq_hz = 1000;
+
+// задаем номера портов для ШИМ-выходов для Задания тока и напряжения и Аналоговых входов
+const int I_set_pin = 1;
+const int U_set_pin = 3;
+const int I_sens_pin = 1;
+const int U_sens_pin = 3;
+
+// Переменные для использования
+uint32_t I_set,U_set;
+//uint8_t hour,min,sec;
+
 
 // Битмап с картинкой стрелочки (Если нужен)
 const uint8_t ptr_bmp[] PROGMEM = {
@@ -26,7 +53,12 @@ const uint8_t ptr_bmp[] PROGMEM = {
 void setup() {
   Serial.begin(115200);
   Serial.println();
-
+  rtc.setTime(30,58,16,07,04,23);
+  
+  
+  ledcSetup(I_sens_pin,freq_hz,12);
+  ledcSetup(U_sens_pin,freq_hz,12);
+//ledcWrite(I_set_pin,I_set);
   lcd.init();
   if (! lcd.begin()) {
     Serial.println(F("ST7567S display not found!"));
@@ -70,8 +102,11 @@ void setup() {
 */ 
 }
 
+
+
+
 void loop() {
-   static uint8_t pointer = 0; // Переменная указатель
+   static int8_t pointer = 0; // Переменная указатель
     enc.tick();                       // опрос происходит здесь
 
   // =============== ЭНКОДЕР ===============
@@ -132,69 +167,49 @@ if (enc.right() or enc.rightH())
 
 if (enc.isClick()) {   // Нажатие на Энкодер" - переход в пункт меню
     switch (pointer) {  // По номеру указателей располагаем вложенные функции (можно вложенные меню)
-      case 0: func(); break;  // По нажатию на ОК при наведении на 0й пункт вызвать функцию
-      case 1: break;
+      case 0: monitor(); break;  // По нажатию на ОК при наведении на 0й пункт вызвать функцию
+      case 1: func();break;
       case 2: break;
       case 3: break;
       case 4: break;
       case 5: break;
       case 6: break;
-      case 7: break;
+      case 7: settings(); break;
         // И все остальные
     }
   }
 
+current=millis();
+if (current-now>=timeout)
+{
+now=millis();
+
 /* меню */
-  lcd.clear();           // Очищаем буфер
-  lcd.home();            // Курсор в левый верхний угол
+ 
 
   if (pointer < 8) {      // Первая страница
-    lcd.print            // Вывод всех пунктов
-    (F(
-       "  Parameter 0:\n" // Не забываем про '\n' - символ переноса строки
-       "  Parameter 1:\n"
-       "  Parameter 2:\n"
-       "  Parameter 3:\n"
-       "  Parameter 4:\n"
-       "  Parameter 5:\n"
-       "  Parameter 6:\n"
-       "  Parameter 7:\n"
-     ));
-  } else if (pointer < 16) {// Вторая страница
-    lcd.print
-    (F(
-       "  Parameter 8:\n"
-       "  Parameter 9:\n"
-       "  Parameter 10:\n"
-       "  Parameter 11:\n"
-       "  Parameter 12:\n"
-       "  Parameter 13:\n"
-       "  Parameter 14:\n"
-       "  Parameter 15:\n"
-     ));
-  } else {                  // Последняя страница
-    lcd.print
-    (F(
-       "  Parameter 16:\n"
-       "  Parameter 17:\n"
-       "  Parameter 18:\n"
-       "  Parameter 19:\n"
-       "  Parameter 20:\n"
-       "  Parameter 21:\n"
-       "  Parameter 22:\n"
-       "  Parameter 23:\n"
-     ));
-  }
+lcd.clear();           // Очищаем буфер
+lcd.home();            // Курсор в левый верхний угол
 
-  printPointer(pointer);  // Вывод указателя
+    lcd.println(F(" Мониторинг"));           // Вывод всех пунктов
+    lcd.println(F(" Режим 1:"));
+    lcd.println(F(" Режим 2:"));
+    lcd.println(F(" Параметр 4:"));
+    lcd.println(F(" Параметр 5:"));
+    lcd.println(F(" Параметр 6:"));
+    lcd.println(F(" Настройка:"));
+  } else { pointer = 8; }
 
+  printPointer(pointer);   // Вывод указателя
+  now=millis();
 }
 
-
-void printPointer(uint8_t p) {
+}
+void printPointer(uint8_t pointer)
+ {
   // Символьный указатель - лучший выбор в многостраничном меню
   // Указатель в начале строки
-  lcd.position(0, p);
+  lcd.position(0, pointer);
   lcd.print(">");
   // Можно еще в конце
   /*oled.setCursor(20, pointer);
@@ -206,10 +221,36 @@ void printPointer(uint8_t p) {
 }
 
 /* пример вложеной функции, которую можно вызвать из под меню */
+void monitor (void){
+  lcd.clear();
+  lcd.home();
+
+
+  while (1) {
+      lcd.print(F("Время зарядки:")); 
+      lcd.print((String)rtc.getTime("%H:%M:%S"));
+      lcd.print('\n');
+      lcd.println(F("Uаккум = "));
+    enc.tick();
+    if (enc.isClick()) return; // return возвращает нас в предыдущее меню
+  }
+}
+
 void func(void) {
   lcd.clear();
   lcd.home();
   lcd.print(F("Press OK to return"));
+  
+  while (1) {
+    enc.tick();
+    if (enc.isClick()) return; // return возвращает нас в предыдущее меню
+  }
+}
+
+void settings(void) {
+  lcd.clear();
+  lcd.home();
+  lcd.print(F("Настройка регулятора"));
   
   while (1) {
     enc.tick();
