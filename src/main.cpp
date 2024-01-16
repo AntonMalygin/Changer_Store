@@ -8,7 +8,7 @@
 //#include "sdkconfig.h"
 
 Console<ST7567S<0x3F>> lcd;
-EncButton<EB_TICK, 7,6,2> enc;  // энкодер с кнопкой
+EncButton<EB_TICK, 17,16,32> enc;  // энкодер с кнопкой Номера GPIO куда подключены А / В и кнопка
 //EncButton2<EB_ENC> enc(INPUT, 2, 3);        // просто энкодер
 //EncButton2<EB_BTN> enc(INPUT, 4);           // просто кнопка
 // для изменения направления энкодера поменяй A и B при инициализации
@@ -26,11 +26,12 @@ ESP32Time rtc(10800);  // offset in seconds GMT+3
 u_long now,current;   // время
 u_long timeout=200;
 
-#define ITEMS 24               // Общее кол во пунктов (больше 8 - нужно несколько страниц)
+#define ITEMS 8               // Общее кол во пунктов (больше 8 - нужно несколько страниц)
 
 uint8_t data[ITEMS];
 bool flag = true;
-
+uint8_t screen_old, screen_current;            // Прошлая картинка / текущая картинка
+ 
 // Задаем настройки для ШИМ-сигналов
 const int freq_hz = 1000;
 
@@ -43,6 +44,7 @@ const int U_sens_pin = 3;
 // Переменные для использования
 uint32_t I_set,U_set;
 //uint8_t hour,min,sec;
+
 
 
 // Битмап с картинкой стрелочки (Если нужен)
@@ -222,21 +224,30 @@ void printPointer(uint8_t pointer)
 
 /* пример вложеной функции, которую можно вызвать из под меню */
 void monitor (void){
-  lcd.clear();
-  lcd.home();
+  screen_current = ITEMS;
+  if (screen_old!=screen_current)
+  {
+      lcd.clear();
+      lcd.home();
+  }
+  
 
 
+       
   while (1) {
-      lcd.print(F("Время зарядки:")); 
-      lcd.print((String)rtc.getTime("%H:%M:%S"));
-      lcd.print('\n');
-      lcd.println(F("Uаккум = "));
+      lcd.print(F("Время зар.:"));
+      lcd.println((String)rtc.getTime("%H:%M:%S"));
+      lcd.print(F("Uаккум = "));
+      lcd.println((String)analogRead(36));
+      lcd.home();
     enc.tick();
     if (enc.isClick()) return; // return возвращает нас в предыдущее меню
   }
+  screen_old = ITEMS;
 }
 
 void func(void) {
+  screen_current = ITEMS;
   lcd.clear();
   lcd.home();
   lcd.print(F("Press OK to return"));
@@ -245,16 +256,20 @@ void func(void) {
     enc.tick();
     if (enc.isClick()) return; // return возвращает нас в предыдущее меню
   }
+  screen_old = ITEMS;
 }
 
 void settings(void) {
+  screen_current = ITEMS;
   lcd.clear();
   lcd.home();
   lcd.print(F("Настройка регулятора"));
   
   while (1) {
+    
     enc.tick();
     if (enc.isClick()) return; // return возвращает нас в предыдущее меню
   }
+  screen_old = ITEMS;
 }
 
